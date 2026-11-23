@@ -33,6 +33,10 @@ pub struct PauliFrame {
     xz: Vec<u64>,
     /// The power of `i` in each row, modulo 4.
     phase: Vec<u8>,
+    /// Scratch buffer for the image row in [`Self::append_ppr`], reused between calls.
+    scratch: Vec<u64>,
+    /// Scratch buffer for the anticommuting rows in [`Self::append_ppr`], reused between calls.
+    scratch_rows: Vec<usize>,
 }
 
 impl PauliFrame {
@@ -50,6 +54,8 @@ impl PauliFrame {
             words,
             xz,
             phase: vec![0; 2 * num_qubits],
+            scratch: vec![0; stride],
+            scratch_rows: Vec::new(),
         }
     }
 
@@ -247,25 +253,30 @@ impl PauliFrame {
         // The rotation changes only the generators that anticommute with the Pauli.
         // A generator X_q anticommutes with the Pauli if the Pauli has a Z bit on qubit q.
         // A generator Z_q anticommutes with the Pauli if the Pauli has an X bit on qubit q.
-        let rows = pauli_z
-            .iter()
-            .zip(pauli_x)
-            .zip(indices)
-            .flat_map(|((&z, &x), &qubit)| {
-                let qubit = qubit as usize;
-                [(z, qubit), (x, self.num_qubits + qubit)]
-            })
-            .filter_map(|(anticommutes, row)| anticommutes.then_some(row))
-            .collect::<Vec<_>>();
+        let mut rows = std::mem::take(&mut self.scratch_rows);
+        rows.clear();
+        rows.extend(
+            pauli_z
+                .iter()
+                .zip(pauli_x)
+                .zip(indices)
+                .flat_map(|((&z, &x), &qubit)| {
+                    let qubit = qubit as usize;
+                    [(z, qubit), (x, self.num_qubits + qubit)]
+                })
+                .filter_map(|(anticommutes, row)| anticommutes.then_some(row)),
+        );
         if multiple == 2 {
-            for row in rows {
+            for &row in &rows {
                 self.negate_row(row);
             }
+            self.scratch_rows = rows;
             return;
         }
-        let (image, image_phase) = self.image(pauli_z, pauli_x, indices);
+        let mut image = std::mem::take(&mut self.scratch);
+        let image_phase = self.image_into(pauli_z, pauli_x, indices, &mut image);
         let extra = if multiple == 1 { 3 } else { 1 };
-        for row in rows {
+        for &row in &rows {
             let stride = self.stride();
             let sign = multiply(
                 &mut self.xz[row * stride..(row + 1) * stride],
@@ -274,21 +285,38 @@ impl PauliFrame {
             );
             self.phase[row] = (self.phase[row] + image_phase + sign + extra) & 3;
         }
+        self.scratch = image;
+        self.scratch_rows = rows;
     }
 
     /// Returns the image `C† P C` of a Pauli `P` as the bits of one row and the power of `i`.
     /// The Pauli has the bits `pauli_z[j]` and `pauli_x[j]` on the qubit `indices[j]`.
     fn image(&self, pauli_z: &[bool], pauli_x: &[bool], indices: &[u32]) -> (Vec<u64>, u8) {
         let mut image = vec![0; self.stride()];
+        let phase = self.image_into(pauli_z, pauli_x, indices, &mut image);
+        (image, phase)
+    }
+
+    /// Like [`Self::image`], but writes the row into `image` (cleared and resized to one row)
+    /// and returns only the power of `i`.
+    fn image_into(
+        &self,
+        pauli_z: &[bool],
+        pauli_x: &[bool],
+        indices: &[u32],
+        image: &mut Vec<u64>,
+    ) -> u8 {
+        image.clear();
+        image.resize(self.stride(), 0);
         let mut phase = 0;
         for ((&z, &x), &qubit) in pauli_z.iter().zip(pauli_x).zip(indices) {
             let qubit = qubit as usize;
             if x {
-                phase += self.phase[qubit] + multiply(&mut image, self.row(qubit), self.words);
+                phase += self.phase[qubit] + multiply(image, self.row(qubit), self.words);
             }
             if z {
                 let row = self.num_qubits + qubit;
-                phase += self.phase[row] + multiply(&mut image, self.row(row), self.words);
+                phase += self.phase[row] + multiply(image, self.row(row), self.words);
             }
             if x && z {
                 // Y = i X Z.
@@ -296,7 +324,7 @@ impl PauliFrame {
             }
             phase &= 3;
         }
-        (image, phase)
+        phase
     }
 
     /// Evolves a Pauli by the Clifford. The Pauli has the bits `in_z[j]` and `in_x[j]` on the
