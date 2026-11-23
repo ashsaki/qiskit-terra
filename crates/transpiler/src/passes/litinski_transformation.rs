@@ -27,7 +27,8 @@ use super::common::{
 };
 use crate::TranspilerError;
 use num_complex::Complex64;
-use qiskit_quantum_info::clifford::{Clifford, Pauli1q};
+use qiskit_quantum_info::clifford::Pauli1q;
+use qiskit_quantum_info::pauli_frame::PauliFrame;
 use qiskit_quantum_info::sparse_observable::{BitTerm, SparseObservable};
 
 use smallvec::smallvec;
@@ -146,7 +147,7 @@ pub fn run_litinski_transformation(
     let mut new_dag = new_dag.into_builder();
 
     let num_qubits = dag.num_qubits();
-    let mut clifford = Clifford::identity(num_qubits);
+    let mut clifford = PauliFrame::identity(num_qubits);
 
     let mut qargs = Vec::new();
 

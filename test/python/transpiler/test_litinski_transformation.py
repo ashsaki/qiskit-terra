@@ -917,6 +917,66 @@ class TestLitinskiTransformation(QiskitTestCase):
         circuit_out = transform(circuit)
         self.assertEqual(Operator(circuit_out), Operator(circuit))
 
+    @data(True, False)
+    def test_random_circuits_with_pprs(self, use_ppr):
+        """Test on random circuits with all supported Clifford gates and with PPRs that
+        have identity terms."""
+        rng = np.random.default_rng(1234)
+        one_qubit_gates = ["id", "x", "y", "z", "h", "s", "sdg", "sx", "sxdg"]
+        two_qubit_gates = ["cx", "cz", "cy", "swap", "iswap", "ecr", "dcx"]
+        num_qubits = 3
+        for _ in range(5):
+            qc = QuantumCircuit(num_qubits)
+            for _ in range(40):
+                choice = rng.random()
+                if choice < 0.3:
+                    gate = one_qubit_gates[rng.integers(len(one_qubit_gates))]
+                    getattr(qc, gate)(int(rng.integers(num_qubits)))
+                elif choice < 0.6:
+                    gate = two_qubit_gates[rng.integers(len(two_qubit_gates))]
+                    getattr(qc, gate)(*rng.choice(num_qubits, 2, replace=False).tolist())
+                elif choice < 0.7:
+                    qc.rz(rng.uniform(-np.pi, np.pi), int(rng.integers(num_qubits)))
+                else:
+                    label = "".join(rng.choice(list("IXYZ"), num_qubits))
+                    if rng.random() < 0.5:
+                        angle = int(rng.integers(-4, 5)) * np.pi / 2
+                    else:
+                        angle = rng.uniform(-np.pi, np.pi)
+                    qc.append(PauliProductRotationGate(Pauli(label), angle), range(num_qubits))
+            qct = LitinskiTransformation(fix_clifford=True, use_ppr=use_ppr)(qc)
+            self.assertEqual(Operator(qct), Operator(qc))
+
+    @data(64, 65, 130)
+    def test_circuits_with_more_than_64_qubits(self, num_qubits):
+        """Test rotations and measurements that are evolved by a Clifford circuit with
+        64 qubits or more."""
+        cliff = random_clifford_circuit(num_qubits, num_gates=300, seed=num_qubits)
+        qc = QuantumCircuit(num_qubits, 1)
+        qc.compose(cliff, inplace=True)
+        qc.rz(0.3, num_qubits - 1)
+        qc.append(PauliProductRotationGate(Pauli("XYZ"), 0.7), [0, num_qubits // 2, num_qubits - 1])
+        qc.measure(0, 0)
+        qct = LitinskiTransformation(fix_clifford=False, use_ppr=True)(qc)
+
+        def evolve(label, qubits):
+            """Return the evolved Pauli without identity terms, and its qubits."""
+            full_label = ["I"] * num_qubits
+            for char, qubit in zip(reversed(label), qubits):
+                full_label[num_qubits - 1 - qubit] = char
+            pauli_ev = Pauli("".join(full_label)).evolve(cliff)
+            support = np.flatnonzero(pauli_ev.z | pauli_ev.x).tolist()
+            return Pauli((pauli_ev.z[support], pauli_ev.x[support], pauli_ev.phase)), support
+
+        expected = QuantumCircuit(num_qubits, 1)
+        pauli_ev, qubits = evolve("Z", [num_qubits - 1])
+        expected.append(PauliProductRotationGate(pauli_ev, 0.3), qubits)
+        pauli_ev, qubits = evolve("XYZ", [0, num_qubits // 2, num_qubits - 1])
+        expected.append(PauliProductRotationGate(pauli_ev, 0.7), qubits)
+        pauli_ev, qubits = evolve("Z", [0])
+        expected.append(PauliProductMeasurement(pauli_ev), qubits, [0])
+        self.assertEqual(qct, expected)
+
     def test_simple_pbc_circuit(self):
         """Test a simple PBC circuit: H T H"""
         pbc = QuantumCircuit(1)
