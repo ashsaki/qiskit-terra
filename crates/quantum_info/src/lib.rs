@@ -12,6 +12,7 @@
 
 pub mod clifford;
 pub mod matrix_compressed_pauli;
+pub mod pauli_frame;
 pub mod pauli_lindblad_map;
 pub mod sparse_observable;
 #[cfg(feature = "python")]
