@@ -1,0 +1,5 @@
+---
+performance:
+  - |
+    :class:`.LitinskiTransformation` is now significantly faster for wide circuits.
+    The output of the pass does not change.
