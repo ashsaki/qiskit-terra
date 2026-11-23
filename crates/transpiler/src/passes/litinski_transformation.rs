@@ -147,7 +147,7 @@ pub fn run_litinski_transformation(
     let mut new_dag = new_dag.into_builder();
 
     let num_qubits = dag.num_qubits();
-    let mut clifford = PauliFrame::identity(num_qubits);
+    let mut inverse_frame = PauliFrame::identity(num_qubits);
 
     let mut qargs = Vec::new();
 
@@ -168,81 +168,81 @@ pub fn run_litinski_transformation(
             match inst.op.view() {
                 OperationRef::StandardGate(StandardGate::I) => is_clifford = true,
                 OperationRef::StandardGate(StandardGate::X) => {
-                    clifford.append_x(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_x(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::Y) => {
-                    clifford.append_y(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_y(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::Z) => {
-                    clifford.append_z(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_z(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::H) => {
-                    clifford.append_h(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_h(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::S) => {
-                    clifford.append_s(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_s(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::Sdg) => {
-                    clifford.append_sdg(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_sdg(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::SX) => {
-                    clifford.append_sx(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_sx(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::SXdg) => {
-                    clifford.append_sxdg(dag.get_qargs(inst.qubits)[0].index());
+                    inverse_frame.append_sxdg(dag.get_qargs(inst.qubits)[0].index());
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::CX) => {
-                    clifford.append_cx(
+                    inverse_frame.append_cx(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::CZ) => {
-                    clifford.append_cz(
+                    inverse_frame.append_cz(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::CY) => {
-                    clifford.append_cy(
+                    inverse_frame.append_cy(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::Swap) => {
-                    clifford.append_swap(
+                    inverse_frame.append_swap(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::ISwap) => {
-                    clifford.append_iswap(
+                    inverse_frame.append_iswap(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::ECR) => {
-                    clifford.append_ecr(
+                    inverse_frame.append_ecr(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
                     is_clifford = true
                 }
                 OperationRef::StandardGate(StandardGate::DCX) => {
-                    clifford.append_dcx(
+                    inverse_frame.append_dcx(
                         dag.get_qargs(inst.qubits)[0].index(),
                         dag.get_qargs(inst.qubits)[1].index(),
                     );
@@ -269,10 +269,10 @@ pub fn run_litinski_transformation(
                             is_clifford = true;
                             match gate {
                                 StandardGate::RZ | StandardGate::Phase | StandardGate::U1 => {
-                                    clifford.append_rz(qubit, multiple)
+                                    inverse_frame.append_rz(qubit, multiple)
                                 }
-                                StandardGate::RX => clifford.append_rx(qubit, multiple),
-                                StandardGate::RY => clifford.append_ry(qubit, multiple),
+                                StandardGate::RX => inverse_frame.append_rx(qubit, multiple),
+                                StandardGate::RY => inverse_frame.append_ry(qubit, multiple),
                                 _ => unreachable!(
                                     "We cannot have gates other than RZ/RX/RY/P/U1 at this point."
                                 ),
@@ -323,7 +323,7 @@ pub fn run_litinski_transformation(
                         // Evolving the single qubit pauli (X, Y or Z) by the Clifford.
                         // Returns the evolved Pauli in the sparse format: (sign, pauli z, pauli x, indices),
                         // where signs `true` and `false` correspond to coefficients `-1` and `+1` respectively.
-                        let (sign, z, x, indices) = clifford.evolve_single_qubit_pauli(
+                        let (sign, z, x, indices) = inverse_frame.evolve_single_qubit_pauli(
                             pauli,
                             dag.get_qargs(inst.qubits)[0].index(),
                         );
@@ -395,13 +395,14 @@ pub fn run_litinski_transformation(
                             is_ppr_angle_close_to_multiple_of_pi2(in_z, in_x, *angle, tol)
                         {
                             is_clifford = true;
-                            clifford.append_ppr(in_z, in_x, &indices_in, multiple)
+                            inverse_frame.append_ppr(in_z, in_x, &indices_in, multiple)
                         }
                     }
                     if !is_clifford {
                         // PPR is not clifford
                         // Evolve PPR by the clifford
-                        let (sign, z, x, indices) = clifford.evolve_pauli(in_z, in_x, &indices_in);
+                        let (sign, z, x, indices) =
+                            inverse_frame.evolve_pauli(in_z, in_x, &indices_in);
 
                         let out_sign = if sign { -1.0 } else { 1.0 };
                         let angle = multiply_param(angle, out_sign);
@@ -428,7 +429,7 @@ pub fn run_litinski_transformation(
                     // Evolve a measurement in the Z-basis by a Clifford.
                     // Returns the evolved Pauli in the sparse format: (sign, pauli z, pauli x, indices),
                     // where signs `true` and `false` correspond to coefficients `-1` and `+1` respectively.
-                    let (sign, z, x, indices) = clifford.evolve_single_qubit_pauli(
+                    let (sign, z, x, indices) = inverse_frame.evolve_single_qubit_pauli(
                         Pauli1q::Z,
                         dag.get_qargs(inst.qubits)[0].index(),
                     );
@@ -459,7 +460,7 @@ pub fn run_litinski_transformation(
                         .map(|i| qargs_in[i].index() as u32)
                         .collect();
 
-                    let (sign, z, x, indices) = clifford.evolve_pauli(in_z, in_x, &indices_in);
+                    let (sign, z, x, indices) = inverse_frame.evolve_pauli(in_z, in_x, &indices_in);
                     let ppm = PauliProductMeasurement {
                         z,
                         x,
